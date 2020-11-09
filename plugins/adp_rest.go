@@ -3,7 +3,6 @@ package plugins
 import (
 	"context"
 	"fmt"
-	"github.com/elazarl/go-bindata-assetfs"
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
 	"github.com/reddec/monexec/pool"
@@ -16,6 +15,7 @@ import (
 const restApiStartupCheck = 1 * time.Second
 
 //go:generate go-bindata -pkg plugins -prefix ../ui/dist/ ../ui/dist/
+//go:generate go-bindata -debug -pkg plugins -prefix ../ui/dist/ ../ui/dist/
 type RestPlugin struct {
 	Listen string `yaml:"listen"`
 	CORS   bool   `yaml:"cors"`
@@ -28,7 +28,8 @@ func (p *RestPlugin) Prepare(ctx context.Context, pl *pool.Pool) error {
 	if p.CORS {
 		router.Use(CORSMiddleware())
 	}
-	router.StaticFS("/ui/", &assetfs.AssetFS{Asset: Asset, AssetDir: AssetDir, AssetInfo: AssetInfo, Prefix: ""})
+	router.StaticFS("/ui", http.Dir("./ui/dist"))
+	//router.StaticFS("/ui/", &assetfs.AssetFS{Asset: Asset, AssetDir: AssetDir, AssetInfo: AssetInfo, Prefix: ""})
 	router.GET("/", func(gctx *gin.Context) {
 		gctx.Redirect(http.StatusTemporaryRedirect, "ui")
 	})
@@ -51,6 +52,7 @@ func (p *RestPlugin) Prepare(ctx context.Context, pl *pool.Pool) error {
 	})
 	router.GET("/supervisor/:name/log", func(gctx *gin.Context) {
 		name := gctx.Param("name")
+		var f *os.File
 		for _, sv := range pl.Supervisors() {
 			if sv.Config().Name == name {
 				if sv.Config().LogFile == "" {
@@ -61,13 +63,15 @@ func (p *RestPlugin) Prepare(ctx context.Context, pl *pool.Pool) error {
 					gctx.AbortWithError(http.StatusBadGateway, err)
 					return
 				}
-				defer f.Close()
 				gctx.Header("Content-Type", "text/plain")
 				gctx.Header("Content-Disposition", "attachment; filename=\""+sv.Config().Name+".log\"")
 				gctx.AbortWithStatus(http.StatusOK)
 				io.Copy(gctx.Writer, f)
 				return
 			}
+		}
+		if f != nil {
+			defer f.Close()
 		}
 		gctx.AbortWithStatus(http.StatusNotFound)
 	})
@@ -113,6 +117,18 @@ func (p *RestPlugin) Prepare(ctx context.Context, pl *pool.Pool) error {
 		gctx.AbortWithStatus(http.StatusNotFound)
 	})
 
+	//返回机器标识信息
+	router.GET("/info", func(gctx *gin.Context) {
+		if MachineInfo == nil {
+			gctx.AbortWithStatus(http.StatusNotFound)
+		}
+		info := RegInfo{
+			Machine: MachineInfo.Machine,
+			Ip:      MachineInfo.Ip,
+		}
+		gctx.JSON(http.StatusOK, info)
+	})
+
 	p.server = &http.Server{Addr: p.Listen, Handler: router}
 	fmt.Println("rest interface will be available on", p.Listen)
 	start := make(chan error, 1)
@@ -146,10 +162,10 @@ func (p *RestPlugin) MergeFrom(o interface{}) error {
 	return nil
 }
 
-func (a *RestPlugin) Close() error {
+func (p *RestPlugin) Close() error {
 	ctx, closer := context.WithTimeout(context.Background(), 1*time.Second)
 	defer closer()
-	return a.server.Shutdown(ctx)
+	return p.server.Shutdown(ctx)
 }
 
 func defaultRestPlugin() *RestPlugin {

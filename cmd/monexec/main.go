@@ -42,6 +42,7 @@ var (
 	startSources = startCommand.Arg("source", "Source files and/or directories with YAML files (.yml or .yaml)").Required().Strings()
 )
 
+//执行run命令
 func run() {
 	config := monexec.DefaultConfig()
 
@@ -86,6 +87,7 @@ func run() {
 	}
 }
 
+//执行start命令，读取一个或多个配置文件并启动
 func start() {
 	config, err := monexec.LoadConfig(*startSources...)
 	if err != nil {

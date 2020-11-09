@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Pallinder/go-randomdata"
-	"gopkg.in/yaml.v2"
-	"github.com/reddec/monexec/pool"
-	"github.com/mitchellh/mapstructure"
 	"errors"
+	"github.com/Pallinder/go-randomdata"
+	"github.com/mitchellh/mapstructure"
 	"github.com/reddec/monexec/plugins"
+	"github.com/reddec/monexec/pool"
+	"gopkg.in/yaml.v2"
 	"reflect"
 )
 
@@ -25,28 +25,29 @@ type Config struct {
 	loadedPlugins map[string]plugins.PluginConfigNG `yaml:"-"`
 }
 
-func (c *Config) MergeFrom(other *Config) error {
-	c.Services = append(c.Services, other.Services...)
+func (config *Config) MergeFrom(other *Config) error {
+	config.Services = append(config.Services, other.Services...)
 	// -- merge plugins
 	for otherPluginName, otherPluginInstance := range other.loadedPlugins {
-		if ownPlugin, needMerge := c.loadedPlugins[otherPluginName]; needMerge {
+		if ownPlugin, needMerge := config.loadedPlugins[otherPluginName]; needMerge {
 			err := ownPlugin.MergeFrom(otherPluginInstance)
 			if err != nil {
 				return errors.New("merge " + otherPluginName + ": " + err.Error())
 			}
 		} else { // new one - just copy
-			c.loadedPlugins[otherPluginName] = otherPluginInstance
+			config.loadedPlugins[otherPluginName] = otherPluginInstance
 		}
 	}
 	return nil
 }
 
-func (c *Config) ClosePlugins() {
-	for _, plugin := range c.loadedPlugins {
+func (config *Config) ClosePlugins() {
+	for _, plugin := range config.loadedPlugins {
 		plugin.Close()
 	}
 }
 
+//生成一个空Config，并初始化loadedPlugins为空映射
 func DefaultConfig() Config {
 	config := Config{}
 
@@ -93,6 +94,7 @@ func (config *Config) Run(sv *pool.Pool, ctx context.Context) error {
 	return nil
 }
 
+//LoadConfig读取一个或多个配置文件
 func LoadConfig(locations ...string) (*Config, error) {
 	c := DefaultConfig()
 	ans := &c

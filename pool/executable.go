@@ -30,33 +30,34 @@ type Executable struct {
 	loggerInit sync.Once
 }
 
-func (b *Executable) WithName(name string) *Executable {
-	cp := *b
+func (exe *Executable) WithName(name string) *Executable {
+	cp := *exe
 	cp.loggerInit = sync.Once{}
 	cp.Name = name
 	return &cp
 }
 
 // Arg adds additional positional argument
-func (b *Executable) Arg(arg string) *Executable {
-	b.Args = append(b.Args, arg)
-	return b
+func (exe *Executable) Arg(arg string) *Executable {
+	exe.Args = append(exe.Args, arg)
+	return exe
 }
 
 // Env adds additional environment key-value pair
-func (b *Executable) Env(arg, value string) *Executable {
-	if b.Environment == nil {
-		b.Environment = make(map[string]string)
+func (exe *Executable) Env(arg, value string) *Executable {
+	if exe.Environment == nil {
+		exe.Environment = make(map[string]string)
 	}
-	b.Environment[arg] = value
-	return b
+	exe.Environment[arg] = value
+	return exe
 }
 
-func (e *Executable) logger() *log.Logger {
-	e.loggerInit.Do(func() {
-		e.log = log.New(os.Stderr, "["+e.Name+"] ", log.LstdFlags)
+//获取Executable中绑定的logger 即$exe.log
+func (exe *Executable) logger() *log.Logger {
+	exe.loggerInit.Do(func() {
+		exe.log = log.New(os.Stderr, "["+exe.Name+"] ", log.LstdFlags)
 	})
-	return e.log
+	return exe.log
 }
 
 // try to do graceful process termination by sending SIGKILL. If no response after StopTimeout
@@ -70,9 +71,9 @@ func (exe *Executable) stopOrKill(cmd *exec.Cmd, res <-chan error) error {
 
 	select {
 	case err = <-res:
-		exe.logger().Println("Process gracefull stopped")
+		exe.logger().Println("Process graceful stopped")
 	case <-time.After(exe.StopTimeout):
-		exe.logger().Println("Process gracefull shutdown waiting timeout")
+		exe.logger().Println("Process graceful shutdown waiting timeout")
 		err = kill(cmd, exe.logger())
 	}
 	return err
@@ -109,7 +110,7 @@ func (exe *Executable) run(ctx context.Context) error {
 	var stderr []io.Writer
 	var stdout []io.Writer
 
-	output := NewLoggerStream(exe.logger(), "out:")
+	output := NewLoggerStream(exe.logger(), "|▶▶▶ ServiceOut|")
 	outputs = append(outputs, output)
 	defer output.Close()
 	stderr = outputs
@@ -134,6 +135,9 @@ func (exe *Executable) run(ctx context.Context) error {
 		} else {
 			defer logFile.Close()
 			outputs = append(outputs, logFile)
+			//支持将服务的日志输出到文件
+			stdout = append(stdout, logFile)
+			stderr = append(stderr, logFile)
 		}
 	}
 
