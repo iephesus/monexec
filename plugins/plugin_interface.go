@@ -6,18 +6,22 @@ import (
 	"context"
 )
 
-// factories of plugins
+//  factories of plugins
+//  K:插件名 V:插件的工厂方法
 var plugins = make(map[string]func(fileName string) PluginConfigNG)
 
-// Register one plugin factory. File name not for parsing!
+//  Register one plugin factory. File name not for parsing!
+//  注册插件的工厂方法
+//  当程序启动时，调用所有插件的init方法注册
 func registerPlugin(name string, factory func(fileName string) PluginConfigNG) {
 	plugins[name] = factory
 }
 
-// Build but not fill one config
+//  Build but not fill one config
+//  按照插件工厂方法注册插件
 func BuildPlugin(name string, file string) (PluginConfigNG, bool) {
-	if plugin, ok := plugins[name]; ok {
-		return plugin(file), true
+	if pluginFac, ok := plugins[name]; ok {
+		return pluginFac(file), true
 	}
 	return nil, false
 }

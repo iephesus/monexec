@@ -97,7 +97,7 @@ func start() {
 	runConfigInSupervisor(config, &pool.Pool{})
 }
 
-func runConfigInSupervisor(config *monexec.Config, sv *pool.Pool) {
+func runConfigInSupervisor(config *monexec.Config, pool *pool.Pool) {
 	ctx, stop := context.WithCancel(context.Background())
 
 	c := make(chan os.Signal, 2)
@@ -109,19 +109,20 @@ func runConfigInSupervisor(config *monexec.Config, sv *pool.Pool) {
 		}
 	}()
 
-	err := config.Run(sv, ctx)
-
+	err := config.Run(pool, ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
-	done := sv.Done()
+
+	done := pool.Done()
 	select {
 	case <-ctx.Done():
-		sv.Terminate()
+		pool.Terminate()
 		<-done
 	case <-done:
 
 	}
+
 	stop()
 	config.ClosePlugins()
 }

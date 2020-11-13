@@ -1,16 +1,16 @@
 package plugins
 
 import (
+	"github.com/hashicorp/consul/api"
 	"time"
 
-	"github.com/hashicorp/consul/api"
-	"log"
-	"sync"
 	"context"
-	"fmt"
-	"os"
 	"errors"
+	"fmt"
 	"github.com/reddec/monexec/pool"
+	"log"
+	"os"
+	"sync"
 )
 
 type ConsulPlugin struct {

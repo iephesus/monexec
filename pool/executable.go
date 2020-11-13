@@ -12,7 +12,8 @@ import (
 	"time"
 )
 
-// Executable - basic information about process.
+//  Executable - basic information about process.
+//  实现了Supervisor接口
 type Executable struct {
 	Name           string            `yaml:"label,omitempty"`         // Human-readable label for process. If not set - command used
 	Command        string            `yaml:"command"`                 // Executable
@@ -79,7 +80,8 @@ func (exe *Executable) stopOrKill(cmd *exec.Cmd, res <-chan error) error {
 	return err
 }
 
-// run once executable, wrap output and wait for finish
+//  run once executable, wrap output and wait for finish
+//  运行一次executable即Supervisor 包装输出并等待执行完成
 func (exe *Executable) run(ctx context.Context) error {
 	cmd := exec.Command(exe.Command, exe.Args...)
 	for _, param := range os.Environ() {
@@ -163,6 +165,7 @@ func (exe *Executable) run(ctx context.Context) error {
 	return err
 }
 
+//实现了Instance接口
 type runnable struct {
 	Executable *Executable `json:"config"`
 	Running    bool        `json:"running"`
@@ -171,6 +174,8 @@ type runnable struct {
 	done       chan struct{}
 }
 
+//  启动Executable 即Supervisor
+//  返回Instance 即runnable
 func (exe *Executable) Start(ctx context.Context, pool *Pool) Instance {
 	chCtx, closer := context.WithCancel(ctx)
 	run := &runnable{
@@ -185,6 +190,7 @@ func (exe *Executable) Start(ctx context.Context, pool *Pool) Instance {
 
 func (exe *Executable) Config() *Executable { return exe }
 
+//运行runnable中的Executable
 func (rn *runnable) run(ctx context.Context) {
 	defer rn.closer()
 	defer close(rn.done)
@@ -194,7 +200,7 @@ LOOP:
 	for {
 		rn.Running = true
 		rn.pool.OnStarted(ctx, rn)
-		err := rn.Executable.run(ctx)
+		err := rn.Executable.run(ctx) //执行Executable
 		if err != nil {
 			rn.Executable.logger().Println("stopped with error:", err)
 		} else {

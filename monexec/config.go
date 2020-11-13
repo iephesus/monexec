@@ -25,11 +25,17 @@ type Config struct {
 	loadedPlugins map[string]plugins.PluginConfigNG `yaml:"-"`
 }
 
+//全局配置文件 为了hot_reload
+var globalConfig *Config
+var globalPool *pool.Pool
+
+//合并配置文件
 func (config *Config) MergeFrom(other *Config) error {
 	config.Services = append(config.Services, other.Services...)
 	// -- merge plugins
 	for otherPluginName, otherPluginInstance := range other.loadedPlugins {
 		if ownPlugin, needMerge := config.loadedPlugins[otherPluginName]; needMerge {
+			//如果有相同的插件，则调用各插件自己的MergeFrom方法进行合并
 			err := ownPlugin.MergeFrom(otherPluginInstance)
 			if err != nil {
 				return errors.New("merge " + otherPluginName + ": " + err.Error())
@@ -70,35 +76,45 @@ func FillDefaultExecutable(exec *pool.Executable) {
 	}
 }
 
-func (config *Config) Run(sv *pool.Pool, ctx context.Context) error {
+//执行config 即Plugin
+func (config *Config) Run(p *pool.Pool, ctx context.Context) error {
 	// Initialize plugins
 	//-- prepare and add all plugins
 	for pluginName, pluginInstance := range config.loadedPlugins {
-		err := pluginInstance.Prepare(ctx, sv)
+		err := pluginInstance.Prepare(ctx, p)
 		if err != nil {
 			log.Println("failed prepare plugin", pluginName, "-", err)
 		} else {
 			log.Println("plugin", pluginName, "ready")
-			sv.Watch(pluginInstance)
+			p.Watch(pluginInstance)
 		}
+	}
+
+	//如果存在globalConfig则证明需要热重载，另存储一份当前Pool
+	if globalConfig != nil {
+		p.EnableHotReload()
+		globalPool = p
 	}
 
 	// Run
 	for i := range config.Services {
 		exec := config.Services[i]
 		FillDefaultExecutable(&exec)
-		sv.Add(&exec)
+		p.Add(&exec)
 	}
 
-	sv.StartAll(ctx)
+	p.StartAll(ctx)
 	return nil
 }
 
 //LoadConfig读取一个或多个配置文件
 func LoadConfig(locations ...string) (*Config, error) {
 	c := DefaultConfig()
-	ans := &c
+	aggregationConfig := &c
 	var files []os.FileInfo
+	var reloadLocation string
+	var reloadFile os.FileInfo
+
 	for _, location := range locations {
 		if stat, err := os.Stat(location); err != nil {
 			return nil, err
@@ -112,8 +128,13 @@ func LoadConfig(locations ...string) (*Config, error) {
 			location = filepath.Dir(location)
 			files = []os.FileInfo{stat}
 		}
+
 		for _, info := range files {
 			if strings.HasSuffix(info.Name(), ".yml") || strings.HasSuffix(info.Name(), ".yaml") {
+				if len(locations) == 1 && len(files) == 1 {
+					reloadLocation = location
+					reloadFile = info
+				}
 				fileName := path.Join(location, info.Name())
 				data, err := ioutil.ReadFile(fileName)
 				if err != nil {
@@ -126,46 +147,67 @@ func LoadConfig(locations ...string) (*Config, error) {
 				}
 
 				// -- load all plugins for current config here
-				for pluginName, description := range conf.Plugins {
-					pluginInstance, found := plugins.BuildPlugin(pluginName, fileName)
-					if !found {
-						log.Println("plugin", pluginName, "not found")
-						continue
-					}
+				conf.loadAllPlugins(fileName)
 
-					var wrap = description
-					refVal := reflect.ValueOf(wrap)
-					if wrap != nil && refVal.Type().Kind() == reflect.Slice {
-						wrap = map[string]interface{}{
-							"<ITEMS>": description,
-						}
-					}
-
-					config := &mapstructure.DecoderConfig{
-						Metadata:   nil,
-						Result:     pluginInstance,
-						DecodeHook: mapstructure.StringToTimeDurationHookFunc(),
-					}
-
-					decoder, err := mapstructure.NewDecoder(config)
-					if err != nil {
-						panic(err) // failed to initialize decoder - something really wrong
-					}
-
-					err = decoder.Decode(wrap)
-					if err != nil {
-						log.Println("failed load plugin", pluginName, "-", err)
-						continue
-					}
-					conf.loadedPlugins[pluginName] = pluginInstance
-				}
-
-				err = ans.MergeFrom(&conf)
+				err = aggregationConfig.MergeFrom(&conf)
 				if err != nil {
 					return nil, err
 				}
 			}
 		}
 	}
-	return ans, nil
+
+	//只有单一文件才进行配置文件热重载
+	if reloadFile != nil {
+		for k, v := range aggregationConfig.loadedPlugins {
+			if k == "assist" {
+				a := v.(*plugins.Assist) // Assist指针才实现了PluginConfigNG接口
+				if a.HotReload {         //如果配置中启动了热重载
+					globalConfig = aggregationConfig
+					initConfig(reloadLocation, reloadFile.Name())
+				}
+			}
+		}
+	}
+
+	return aggregationConfig, nil
+}
+
+//  load all plugins for current config
+//  读取当前配置文件中的所有插件
+func (config *Config) loadAllPlugins(fileName string) {
+	for pluginName, description := range config.Plugins {
+		pluginInstance, found := plugins.BuildPlugin(pluginName, fileName)
+		if !found {
+			log.Println("plugin", pluginName, "not found")
+			continue
+		}
+
+		var wrap = description
+		refVal := reflect.ValueOf(wrap)
+		if wrap != nil && refVal.Type().Kind() == reflect.Slice {
+			wrap = map[string]interface{}{
+				"<ITEMS>": description,
+			}
+		}
+
+		c := &mapstructure.DecoderConfig{
+			Metadata:   nil,
+			Result:     pluginInstance,
+			DecodeHook: mapstructure.StringToTimeDurationHookFunc(),
+		}
+
+		decoder, err := mapstructure.NewDecoder(c)
+		if err != nil {
+			panic(err) // failed to initialize decoder - something really wrong
+		}
+
+		//解析
+		err = decoder.Decode(wrap)
+		if err != nil {
+			log.Println("failed load plugin", pluginName, "-", err)
+			continue
+		}
+		config.loadedPlugins[pluginName] = pluginInstance
+	}
 }

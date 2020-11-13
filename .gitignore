@@ -2,9 +2,10 @@
 build
 .goxc.local.json
 vendor/
-dist
+ui/distss
 snap/**
 stage/**
 prime/**
 parts/**
 *.snap
+*.log

@@ -119,12 +119,12 @@ func (p *RestPlugin) Prepare(ctx context.Context, pl *pool.Pool) error {
 
 	//返回机器标识信息
 	router.GET("/info", func(gctx *gin.Context) {
-		if MachineInfo == nil {
+		if AssistInfo == nil {
 			gctx.AbortWithStatus(http.StatusNotFound)
 		}
-		info := RegInfo{
-			Machine: MachineInfo.Machine,
-			Ip:      MachineInfo.Ip,
+		info := Assist{
+			Machine: AssistInfo.Machine,
+			Ip:      AssistInfo.Ip,
 		}
 		gctx.JSON(http.StatusOK, info)
 	})
