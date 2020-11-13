@@ -13,11 +13,10 @@ import (
 
 /*TODO 1、只有单一配置文件的情况下才支持热重载，当多配置文件时程序原逻辑需要对配置文件做合并再执行，如果不合并则可能会发生配置文件冲突，此时可能达不到修改配置所期望的需求
           同时程序此时是基于内存中的合并后的配置去执行的，并不是基于某一配置文件的即无法对下一次的变更做监听
-	   2、已启动服务的配置无法变更，除非停止服务。同时已启动的服务是在goroutine中运行的，如何根据配置的变更定位到执行该服务的goroutine并执行相应的操作
-       3、如何判断配置文件是否变更？ 只能比较新老配置中服务的数量，当且仅当新配置中的服务数量大于老配置的时候。
-          因为不是简单的按新配置文件中的内容去启动服务，可能出现的情况为：
-          - 1.如果新老配置文件中服务的数量不变，但服务项的其他配置发生了改变，即可能为要停止某服务并启动另一新服务，但停止已启动的服务不应该通过配置文件的变更来操作
-          - 2.如果新配置文件中的服务数量小于老配置，即要停止服务，但停止已启动的服务不应该通过配置文件的变更来操作
+	   2、已启动服务的配置无法变更（即关键的command,args无法变更），除非停止服务。
+          同时已启动的服务是在goroutine中运行的，如何根据配置的变更定位到执行该服务的goroutine并执行相应的操作
+       3、此热重载并不是简单的根据新配置来重载启动程序，而是需要鉴别出新增服务，被删除的服务。即如何界定何为新增的服务、被删除的服务
+          关键点如何判断配置文件是否变更？
 
 */
 
@@ -53,14 +52,40 @@ func enableDynamicConfig(location, file string) {
 		}
 
 		needStartServ := getNewServices(globalConfig.Services, conf.Services)
-		log.Printf("需要新执行的服务: %+v \n", needStartServ)
-
 		//启动新服务
 		if needStartServ != nil {
+			log.Printf("需要新执行的服务: %+v \n", needStartServ)
 			for i := range needStartServ {
 				exec := needStartServ[i]
+				//globalConfig中的服务始终与实际运行状态保持统一，保证下一次热重载能正确区分配置差异
+				globalConfig.Services = append(globalConfig.Services, exec)
 				globalPool.Add(&exec)
+				//通过chan传递需要新启动的服务
 				pool.NewServChan <- &exec
+			}
+		}
+
+		needLoadPlugins := getNewPlugins(globalConfig, &conf)
+		//加载新插件
+		if len(needLoadPlugins) != 0 {
+			log.Printf("需要新加载的插件: %+v \n", needLoadPlugins)
+			var tempConf = DefaultConfig()
+			tempConf.Plugins = needLoadPlugins
+			tempConf.loadAllPlugins(fileName)
+			globalConfig.mergePluginsFrom(&tempConf)
+
+			// Initialize plugins
+			//-- prepare and add newer plugins
+			for pluginName := range needLoadPlugins {
+				if pluginInstance, exist := globalConfig.loadedPlugins[pluginName]; exist {
+					err := pluginInstance.Prepare(*globalCtx, globalPool)
+					if err != nil {
+						log.Println("Failed prepare plugin", pluginName, "-", err)
+					} else {
+						log.Println("------> Hot-Reload Plugin", pluginName, "Ready  <------")
+						globalPool.Watch(pluginInstance)
+					}
+				}
 			}
 		}
 
@@ -98,4 +123,25 @@ func isSameService(a, b pool.Executable) (same bool) {
 		same = false
 	}
 	return
+}
+
+//获取更改配置后所有需要新加载的插件
+func getNewPlugins(oldConf, newConf *Config) map[string]interface{} {
+	var needLoadPlugins = make(map[string]interface{})
+	for pNameNew, plugin := range newConf.Plugins {
+		// 判断某个新插件是否与已存在的所有插件都不相同
+		unsameNum := 0
+		//旧配置中的插件肯定都是已经加载的插件，所以是与loadedPlugins比较
+		for pNameOld := range oldConf.loadedPlugins {
+			if pNameOld == pNameNew {
+				break
+			} else {
+				unsameNum++
+			}
+		}
+		if unsameNum == len(oldConf.loadedPlugins) {
+			needLoadPlugins[pNameNew] = plugin
+		}
+	}
+	return needLoadPlugins
 }

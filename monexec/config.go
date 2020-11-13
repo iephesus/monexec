@@ -25,14 +25,27 @@ type Config struct {
 	loadedPlugins map[string]plugins.PluginConfigNG `yaml:"-"`
 }
 
-//全局配置文件 为了hot_reload
-var globalConfig *Config
-var globalPool *pool.Pool
+var (
+	globalConfig *Config          //保存全局Config 为了hot_reload
+	globalPool   *pool.Pool       //保存全局Pool 为了hot_reload
+	globalCtx    *context.Context //保存全局Context
+)
 
 //合并配置文件
-func (config *Config) MergeFrom(other *Config) error {
+func (config *Config) mergeFrom(other *Config) error {
+	config.mergeServicesFrom(other)
+	config.mergePluginsFrom(other)
+	return nil
+}
+
+// 合并服务
+func (config *Config) mergeServicesFrom(other *Config) error {
 	config.Services = append(config.Services, other.Services...)
-	// -- merge plugins
+	return nil
+}
+
+// 合并插件
+func (config *Config) mergePluginsFrom(other *Config) error {
 	for otherPluginName, otherPluginInstance := range other.loadedPlugins {
 		if ownPlugin, needMerge := config.loadedPlugins[otherPluginName]; needMerge {
 			//如果有相同的插件，则调用各插件自己的MergeFrom方法进行合并
@@ -90,10 +103,11 @@ func (config *Config) Run(p *pool.Pool, ctx context.Context) error {
 		}
 	}
 
-	//如果存在globalConfig则证明需要热重载，另存储一份当前Pool
+	//如果存在globalConfig则证明需要热重载，另存储一份当前状态池Pool和Context
 	if globalConfig != nil {
 		p.EnableHotReload()
 		globalPool = p
+		globalCtx = &ctx
 	}
 
 	// Run
@@ -149,7 +163,7 @@ func LoadConfig(locations ...string) (*Config, error) {
 				// -- load all plugins for current config here
 				conf.loadAllPlugins(fileName)
 
-				err = aggregationConfig.MergeFrom(&conf)
+				err = aggregationConfig.mergeFrom(&conf)
 				if err != nil {
 					return nil, err
 				}
@@ -174,7 +188,7 @@ func LoadConfig(locations ...string) (*Config, error) {
 }
 
 //  load all plugins for current config
-//  读取当前配置文件中的所有插件
+//  读取当前配置文件中的所有插件,并将配置中参数映射到插件实例即PluginConfigNG对象
 func (config *Config) loadAllPlugins(fileName string) {
 	for pluginName, description := range config.Plugins {
 		pluginInstance, found := plugins.BuildPlugin(pluginName, fileName)

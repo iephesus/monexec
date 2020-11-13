@@ -2,6 +2,7 @@ package pool
 
 import (
 	"context"
+	"log"
 	"sync"
 	"time"
 )
@@ -25,6 +26,7 @@ type EventHandler interface {
 	OnFinished(ctx context.Context, in Instance)
 }
 
+//状态池
 type Pool struct {
 	handlers     []EventHandler
 	handlersLock sync.RWMutex
@@ -86,6 +88,7 @@ func StartNewServ(c chan Supervisor, p *Pool, wg *sync.WaitGroup, ctx context.Co
 		go func(sv Supervisor) {
 			defer wg.Done()
 			p.Start(ctx, sv)
+			log.Println("------> Hot-Reload Service", sv.Config().Name, "Ready  <------")
 		}(sv)
 
 		//10秒轮询一次，防止占用过多资源
