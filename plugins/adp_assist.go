@@ -17,8 +17,8 @@ type Assist struct {
 }
 
 type UserInfo struct {
-	Username string `yaml:"username"`
-	Password string `yaml:"password"`
+	Username interface{} `yaml:"username"`
+	Password interface{} `yaml:"password"`
 }
 
 func init() {

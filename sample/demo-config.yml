@@ -1,0 +1,67 @@
+services:
+  - label: WinDemo111
+    command: monGoDemo
+    args:
+      - ddasdsa
+      - s211dsa
+    stop_timeout: 5s
+    restart_delay: 5s
+    restart: -1
+    logFile: ./winDemo.log
+    workdir: "D:\\"
+    environment:
+      SOME_PARAM: some value
+      ANOTHER_PARAM: another value
+      THIRD_PARAM: third value
+      FOUR_PARAM: four value
+
+  - label: WinDemo2
+    command: otherGoDemo
+    args:
+    stop_timeout: 5s
+    restart_delay: 5s
+    restart: -1
+    logFile: ./otherWinDemo.log
+
+  - label: WinDemo3
+    command: threeGoDemo
+    args:
+    #- w
+    #- s
+    stop_timeout: 5s
+    restart_delay: 5s
+    restart: -1
+    #logFile: ./threeWinDemo.log
+
+#热重载下label可同名，command和args不可相同
+#  - label: WinDemo3
+#    command: threeGoDemo
+#    args:
+#    #- w
+#    #- s
+#    stop_timeout: 5s
+#    restart_delay: 5s
+#    restart: -1
+#    #logFile: ./threeWinDemo.log
+
+#consul:
+# url: http://localhost:8500
+# ttl: 3s
+# timeout: 1m0s
+# permanent:
+#   - WinDemo111
+#   - WinDemo2
+
+rest:
+  listen: "localhost:9980"
+  cors: true
+
+#必须要配置
+reginfo:
+  machine: DemoMachine1
+  ip: "192.168.1.1"
+  #是否启用热重载 目前支持新增服务和新增插件热重载
+  hotReload: true
+  users:
+    - {username: "demouser1", password: "123456789"}
+    - {username: "demouser2", password: "11223344"}

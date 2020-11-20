@@ -2,6 +2,8 @@ package monexec
 
 import (
 	"github.com/fsnotify/fsnotify"
+	"github.com/mitchellh/mapstructure"
+	"github.com/reddec/monexec/plugins"
 	"github.com/reddec/monexec/pool"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v2"
@@ -17,6 +19,8 @@ import (
           同时已启动的服务是在goroutine中运行的，如何根据配置的变更定位到执行该服务的goroutine并执行相应的操作
        3、此热重载并不是简单的根据新配置来重载启动程序，而是需要鉴别出新增服务，被删除的服务。即如何界定何为新增的服务、被删除的服务
           关键点如何判断配置文件是否变更？
+       4、因为配置文件解析(Unmarshal)就无法做唯一性判断，所以如果想在解析后做唯一性判断，会因为同参数配置导致无法选取具体是存留哪一个配置 --回到问题3
+          假如按label做唯一性判断，即解析出两个相同label的服务，且command和args不同，那具体加载哪一个舍弃哪一个?
 
 */
 
@@ -40,56 +44,38 @@ func initConfig(location, fileName string) {
 func enableDynamicConfig(location, file string) {
 	viperCfg.WatchConfig()
 	viperCfg.OnConfigChange(func(event fsnotify.Event) {
-		log.Printf("检测到配置文件改变 %s \n", event.String())
-		var conf = DefaultConfig()
+		if isOpenHotReload() {
+			log.Printf("检测到配置文件改变 %s \n", event.String())
+			var conf = DefaultConfig()
 
-		fileName := path.Join(location, file)
-		data, err := ioutil.ReadFile(fileName)
-		err = yaml.Unmarshal(data, &conf)
-		if err != nil {
-			log.Println("读取最新配置文件失败...", err)
-			return
-		}
-
-		needStartServ := getNewServices(globalConfig.Services, conf.Services)
-		//启动新服务
-		if needStartServ != nil {
-			log.Printf("需要新执行的服务: %+v \n", needStartServ)
-			for i := range needStartServ {
-				exec := needStartServ[i]
-				//globalConfig中的服务始终与实际运行状态保持统一，保证下一次热重载能正确区分配置差异
-				globalConfig.Services = append(globalConfig.Services, exec)
-				globalPool.Add(&exec)
-				//通过chan传递需要新启动的服务
-				pool.NewServChan <- &exec
+			fileName := path.Join(location, file)
+			data, err := ioutil.ReadFile(fileName)
+			err = yaml.Unmarshal(data, &conf)
+			if err != nil {
+				log.Println("读取最新配置文件失败...", err)
+				return
 			}
+
+			needStartServ := getNewServices(globalConfig.Services, conf.Services)
+			//启动新服务
+			go startNewServ(needStartServ)
+
+			needLoadPlugins := getNewPlugins(globalConfig, &conf)
+			//加载新插件
+			go loadNewPlugin(fileName, needLoadPlugins)
+
+			//TODO 是否启用重载插件不同参数
+			//loadPluginsDiff(&conf)
 		}
-
-		needLoadPlugins := getNewPlugins(globalConfig, &conf)
-		//加载新插件
-		if len(needLoadPlugins) != 0 {
-			log.Printf("需要新加载的插件: %+v \n", needLoadPlugins)
-			var tempConf = DefaultConfig()
-			tempConf.Plugins = needLoadPlugins
-			tempConf.loadAllPlugins(fileName)
-			globalConfig.mergePluginsFrom(&tempConf)
-
-			// Initialize plugins
-			//-- prepare and add newer plugins
-			for pluginName := range needLoadPlugins {
-				if pluginInstance, exist := globalConfig.loadedPlugins[pluginName]; exist {
-					err := pluginInstance.Prepare(*globalCtx, globalPool)
-					if err != nil {
-						log.Println("Failed prepare plugin", pluginName, "-", err)
-					} else {
-						log.Println("------> Hot-Reload Plugin", pluginName, "Ready  <------")
-						globalPool.Watch(pluginInstance)
-					}
-				}
-			}
-		}
-
 	})
+}
+
+//检查是否开启了热重载
+func isOpenHotReload() bool {
+	if plugins.AssistInfo != nil {
+		return plugins.AssistInfo.HotReload
+	}
+	return false
 }
 
 // 获取更改配置后所有需要新执行的服务
@@ -125,6 +111,21 @@ func isSameService(a, b pool.Executable) (same bool) {
 	return
 }
 
+//启动新服务
+func startNewServ(needStartServ []pool.Executable) {
+	if needStartServ != nil {
+		log.Printf("需要新执行的服务: %+v \n", needStartServ)
+		for i := range needStartServ {
+			exec := needStartServ[i]
+			//globalConfig中的服务始终与实际运行状态保持统一，保证下一次热重载能正确区分新旧配置差异
+			globalConfig.Services = append(globalConfig.Services, exec)
+			globalPool.Add(&exec)
+			//通过chan传递需要新启动的服务
+			pool.NewServChan <- &exec
+		}
+	}
+}
+
 //获取更改配置后所有需要新加载的插件
 func getNewPlugins(oldConf, newConf *Config) map[string]interface{} {
 	var needLoadPlugins = make(map[string]interface{})
@@ -144,4 +145,47 @@ func getNewPlugins(oldConf, newConf *Config) map[string]interface{} {
 		}
 	}
 	return needLoadPlugins
+}
+
+//加载新插件
+func loadNewPlugin(fileName string, needLoadPlugins map[string]interface{}) {
+	if len(needLoadPlugins) != 0 {
+		log.Printf("需要新加载的插件: %+v \n", needLoadPlugins)
+		var tempConf = DefaultConfig()
+		tempConf.Plugins = needLoadPlugins
+		tempConf.loadAllPlugins(fileName)
+		globalConfig.mergePluginsFrom(&tempConf)
+
+		// Initialize plugins
+		//-- prepare and add newer plugins
+		for pluginName := range needLoadPlugins {
+			if pluginInstance, exist := globalConfig.loadedPlugins[pluginName]; exist {
+				err := pluginInstance.Prepare(*globalCtx, globalPool)
+				if err != nil {
+					log.Println("Failed prepare plugin", pluginName, "-", err)
+				} else {
+					log.Println("------> Hot-Reload Plugin", pluginName, "Ready  <------")
+					globalPool.Watch(pluginInstance)
+				}
+			}
+		}
+	}
+}
+
+//重新加载修改过的插件数据
+func loadPluginsDiff(newConf *Config) {
+	//TODO 如果旧配置中的参数 新配置中不存在，是把此参数做删除处理还是保持原参数不变
+	//     1、如果删除的话，即旧配置完全按新配置覆盖
+	//     2、如果保持不变的话，即分别判断每一项，用新配置中存在的参数项替换旧配置对应的参数项
+	for pluginName, newPluginIns := range newConf.Plugins {
+		switch pluginName {
+		case "assist":
+			var npi plugins.Assist
+			mapstructure.Decode(newPluginIns, &npi)
+			plugins.AssistInfo.Machine = npi.Machine
+			plugins.AssistInfo.Ip = npi.Ip
+			plugins.AssistInfo.HotReload = npi.HotReload
+		}
+		//TODO 其他插件配置修改
+	}
 }

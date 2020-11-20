@@ -28,6 +28,7 @@ func (p *RestPlugin) Prepare(ctx context.Context, pl *pool.Pool) error {
 	if p.CORS {
 		router.Use(CORSMiddleware())
 	}
+	//TODO 不使用go-bindata
 	router.StaticFS("/ui", http.Dir("./ui/dist"))
 	//router.StaticFS("/ui/", &assetfs.AssetFS{Asset: Asset, AssetDir: AssetDir, AssetInfo: AssetInfo, Prefix: ""})
 	router.GET("/", func(gctx *gin.Context) {
@@ -120,11 +121,31 @@ func (p *RestPlugin) Prepare(ctx context.Context, pl *pool.Pool) error {
 	//返回机器标识信息
 	router.GET("/info", func(gctx *gin.Context) {
 		if AssistInfo == nil {
-			gctx.AbortWithStatus(http.StatusNotFound)
+			gctx.AbortWithStatus(http.StatusBadGateway)
 		}
 		info := Assist{
 			Machine: AssistInfo.Machine,
 			Ip:      AssistInfo.Ip,
+		}
+		gctx.JSON(http.StatusOK, info)
+	})
+
+	//登录验证
+	router.POST("/login", func(gctx *gin.Context) {
+		if AssistInfo == nil || len(AssistInfo.Users) == 0 {
+			gctx.AbortWithStatus(http.StatusBadGateway)
+		}
+		name := gctx.PostForm("name")
+		password := gctx.PostForm("password")
+		info := make(map[string]interface{})
+		info["loginStatus"] = false
+		info["info"] = "用户名或密码错误!"
+		for _, v := range AssistInfo.Users {
+			if v.Username == name && v.Password == password {
+				info["loginStatus"] = true
+				info["info"] = "登录成功!"
+				break
+			}
 		}
 		gctx.JSON(http.StatusOK, info)
 	})
