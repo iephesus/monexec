@@ -3,7 +3,6 @@ package monexec
 import (
 	"context"
 	"io/ioutil"
-	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -15,6 +14,7 @@ import (
 	"github.com/mitchellh/mapstructure"
 	"github.com/reddec/monexec/plugins"
 	"github.com/reddec/monexec/pool"
+	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 	"reflect"
 )
@@ -26,45 +26,10 @@ type Config struct {
 }
 
 var (
-	globalConfig *Config          //保存全局Config 为了hot_reload
-	globalPool   *pool.Pool       //保存全局Pool 为了hot_reload
+	globalConfig *Config          //保存全局Config 为了config_reload
+	globalPool   *pool.Pool       //保存全局Pool 为了config_reload
 	globalCtx    *context.Context //保存全局Context
 )
-
-//合并配置文件
-func (config *Config) mergeFrom(other *Config) error {
-	config.mergeServicesFrom(other)
-	config.mergePluginsFrom(other)
-	return nil
-}
-
-// 合并服务
-func (config *Config) mergeServicesFrom(other *Config) error {
-	config.Services = append(config.Services, other.Services...)
-	return nil
-}
-
-// 合并插件
-func (config *Config) mergePluginsFrom(other *Config) error {
-	for otherPluginName, otherPluginInstance := range other.loadedPlugins {
-		if ownPlugin, needMerge := config.loadedPlugins[otherPluginName]; needMerge {
-			//如果有相同的插件，则调用各插件自己的MergeFrom方法进行合并
-			err := ownPlugin.MergeFrom(otherPluginInstance)
-			if err != nil {
-				return errors.New("merge " + otherPluginName + ": " + err.Error())
-			}
-		} else { // new one - just copy
-			config.loadedPlugins[otherPluginName] = otherPluginInstance
-		}
-	}
-	return nil
-}
-
-func (config *Config) ClosePlugins() {
-	for _, plugin := range config.loadedPlugins {
-		plugin.Close()
-	}
-}
 
 //生成一个空Config，并初始化loadedPlugins为空映射
 func DefaultConfig() Config {
@@ -89,23 +54,22 @@ func FillDefaultExecutable(exec *pool.Executable) {
 	}
 }
 
-//执行config 即Plugin
-func (config *Config) Run(p *pool.Pool, ctx context.Context) error {
-	// Initialize plugins
-	//-- prepare and add all plugins
+// 执行Config 即加载Plugin 运行Executable
+func (config *Config) Run(ctx context.Context, p *pool.Pool) error {
+	// 初始化插件
+	// 准备并添加所有插件
 	for pluginName, pluginInstance := range config.loadedPlugins {
 		err := pluginInstance.Prepare(ctx, p)
 		if err != nil {
-			log.Println("failed prepare plugin", pluginName, "-", err)
+			log.Infoln("Failed prepare plugin", pluginName, "-", err)
 		} else {
-			log.Println("plugin", pluginName, "ready")
+			log.Infof("Plugin [%v] ready \n", pluginName)
 			p.Watch(pluginInstance)
 		}
 	}
 
-	//如果存在globalConfig则证明需要热重载，另存储一份当前状态池Pool和Context
+	//如果GlobalConfig存在则证明启用了热重载，另存储一份当前运行池Pool和Context
 	if globalConfig != nil {
-		p.EnableHotReload()
 		globalPool = p
 		globalCtx = &ctx
 	}
@@ -124,6 +88,7 @@ func (config *Config) Run(p *pool.Pool, ctx context.Context) error {
 //LoadConfig读取一个或多个配置文件
 func LoadConfig(locations ...string) (*Config, error) {
 	c := DefaultConfig()
+	// 合并后的总配置文件
 	aggregationConfig := &c
 	var files []os.FileInfo
 	var reloadLocation string
@@ -145,10 +110,12 @@ func LoadConfig(locations ...string) (*Config, error) {
 
 		for _, info := range files {
 			if strings.HasSuffix(info.Name(), ".yml") || strings.HasSuffix(info.Name(), ".yaml") {
+				//TODO 暂时的逻辑，启用热重载前必须先判断是否是单一配置文件，目前只有单一配置文件才能做热重载
 				if len(locations) == 1 && len(files) == 1 {
 					reloadLocation = location
 					reloadFile = info
 				}
+
 				fileName := path.Join(location, info.Name())
 				data, err := ioutil.ReadFile(fileName)
 				if err != nil {
@@ -163,7 +130,7 @@ func LoadConfig(locations ...string) (*Config, error) {
 				// -- load all plugins for current config here
 				conf.loadAllPlugins(fileName)
 
-				err = aggregationConfig.mergeFrom(&conf)
+				err = aggregationConfig.mergeConfigFrom(&conf)
 				if err != nil {
 					return nil, err
 				}
@@ -171,15 +138,15 @@ func LoadConfig(locations ...string) (*Config, error) {
 		}
 	}
 
-	//只有单一文件才进行配置文件热重载
+	//只有单一配置文件时才进行热重载判断
 	if reloadFile != nil {
-		for k, v := range aggregationConfig.loadedPlugins {
-			if k == "assist" {
-				a := v.(*plugins.Assist) // Assist指针才实现了PluginConfigNG接口
-				if a.HotReload {         //如果配置中启动了热重载
-					globalConfig = aggregationConfig
-					initConfig(reloadLocation, reloadFile.Name())
-				}
+		//必须启用assist插件，因为配置文件热重载参数在此插件中
+		if plugin, ok := aggregationConfig.loadedPlugins["assist"]; ok {
+			a := plugin.(*plugins.Assist) //Assist指针才实现了PluginConfigNG接口
+			//只有首次读取配置的时候启用了热重载才会加载热重载模块，**如果首次没加载则以后都不会加载了
+			if a.ConfigReload {
+				globalConfig = aggregationConfig
+				go initViper(reloadLocation, reloadFile.Name())
 			}
 		}
 	}
@@ -188,12 +155,12 @@ func LoadConfig(locations ...string) (*Config, error) {
 }
 
 //  load all plugins for current config
-//  读取当前配置文件中的所有插件,并将配置中参数映射到插件实例即PluginConfigNG对象
+//  读取当前配置文件中的所有插件,并将配置中的参数映射到插件实例 即PluginConfigNG对象
 func (config *Config) loadAllPlugins(fileName string) {
 	for pluginName, description := range config.Plugins {
 		pluginInstance, found := plugins.BuildPlugin(pluginName, fileName)
 		if !found {
-			log.Println("plugin", pluginName, "not found")
+			log.Infoln("Plugin -->", pluginName, "<-- Not Found")
 			continue
 		}
 
@@ -219,9 +186,46 @@ func (config *Config) loadAllPlugins(fileName string) {
 		//解析
 		err = decoder.Decode(wrap)
 		if err != nil {
-			log.Println("failed load plugin", pluginName, "-", err)
+			log.Infoln("Failed load plugin", pluginName, "-", err)
 			continue
 		}
 		config.loadedPlugins[pluginName] = pluginInstance
+	}
+}
+
+//合并配置文件
+func (config *Config) mergeConfigFrom(other *Config) error {
+	config.mergeServicesFrom(other)
+	err := config.mergePluginsFrom(other)
+	return err
+}
+
+// 合并服务
+func (config *Config) mergeServicesFrom(other *Config) {
+	config.Services = append(config.Services, other.Services...)
+}
+
+// 合并插件
+func (config *Config) mergePluginsFrom(other *Config) error {
+	for otherPluginName, otherPluginInstance := range other.loadedPlugins {
+		if ownPlugin, needMerge := config.loadedPlugins[otherPluginName]; needMerge {
+			//如果有相同的插件，则调用各插件自己的MergeFrom方法进行合并
+			err := ownPlugin.MergeFrom(otherPluginInstance)
+			if err != nil {
+				return errors.New("merge " + otherPluginName + ": " + err.Error())
+			}
+		} else { // new one - just copy
+			config.loadedPlugins[otherPluginName] = otherPluginInstance
+		}
+	}
+	return nil
+}
+
+func (config *Config) ClosePlugins() {
+	for _, plugin := range config.loadedPlugins {
+		err := plugin.Close()
+		if err != nil {
+			log.Panicln(err)
+		}
 	}
 }

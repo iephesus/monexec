@@ -11,8 +11,8 @@ var AssistInfo *Assist
 
 type Assist struct {
 	Machine   string `yaml:"machine"`
-	Ip        string `yaml:"ip"`
-	HotReload bool   `yaml:"hotReload"`
+	Ip        string `yaml:"ip"`        //
+	ConfigReload bool   `yaml:"configReload"` //是否启用配置热重载
 	Users     []UserInfo
 }
 

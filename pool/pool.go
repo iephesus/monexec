@@ -2,9 +2,8 @@ package pool
 
 import (
 	"context"
-	"log"
+	log "github.com/sirupsen/logrus"
 	"sync"
-	"time"
 )
 
 type Instance interface {
@@ -26,7 +25,8 @@ type EventHandler interface {
 	OnFinished(ctx context.Context, in Instance)
 }
 
-//状态池
+//  状态池
+//  实现EventHandler接口
 type Pool struct {
 	handlers     []EventHandler
 	handlersLock sync.RWMutex
@@ -41,11 +41,13 @@ type Pool struct {
 	done     chan struct{}
 
 	terminating bool
-	isHotReload bool //是否启用热重载
 }
 
 // 全局信道 传递需要新启动的服务
 var NewServChan = make(chan Supervisor)
+
+// 全局信道 控制是否需要退出监听新服务的协程
+var HotReloadCloseChan = make(chan bool)
 
 func (p *Pool) StopAll() {
 	wg := sync.WaitGroup{}
@@ -73,26 +75,27 @@ func (p *Pool) StartAll(ctx context.Context) {
 		}(sv)
 	}
 
-	if p.isHotReload {
-		// 启动新Goroutine监听是否有新服务需要启动
-		go StartNewServ(NewServChan, p, &wg, ctx)
-	}
+	// 启动新Goroutine监听是否有新服务需要启动，并不需要关心是否启用了热重载，只需关心接收到退出信号退出协程
+	go p.startListenNewService(ctx, NewServChan, &wg)
 
 	wg.Wait()
 }
 
-//在原Pool和WaitGroup中启动新服务
-func StartNewServ(c chan Supervisor, p *Pool, wg *sync.WaitGroup, ctx context.Context) {
-	for sv := range c {
-		wg.Add(1)
-		go func(sv Supervisor) {
-			defer wg.Done()
-			p.Start(ctx, sv)
-			log.Println("------> Hot-Reload Service", sv.Config().Name, "Ready  <------")
-		}(sv)
-
-		//10秒轮询一次，防止占用过多资源
-		time.Sleep(10 * time.Second)
+// 监听是否有新服务需要启动，并在原Pool和WaitGroup中启动新服务
+func (p *Pool) startListenNewService(ctx context.Context, c <-chan Supervisor, wg *sync.WaitGroup) {
+	for {
+		select {
+		case <-HotReloadCloseChan:
+			log.Infoln("New service running goroutine exit...")
+			return
+		case sv := <-c:
+			wg.Add(1)
+			go func(sv Supervisor) {
+				defer wg.Done()
+				p.Start(ctx, sv)
+				log.Infoln("---> 服务", sv.Config().Name, "就绪 <---")
+			}(sv)
+		}
 	}
 }
 
@@ -121,6 +124,7 @@ func (p *Pool) Stop(in Instance) {
 	p.inLock.Unlock()
 }
 
+// 往Pool的supervisors即[]Supervisor中添加新增的Supervisor
 func (p *Pool) Add(sv Supervisor) {
 	if p.terminating {
 		return
@@ -130,6 +134,7 @@ func (p *Pool) Add(sv Supervisor) {
 	p.supervisors = append(p.supervisors, sv)
 }
 
+//  往Pool的handlers即[]EventHandler中添加新增的handler
 func (p *Pool) Watch(handler EventHandler) {
 	p.handlersLock.Lock()
 	defer p.handlersLock.Unlock()
@@ -145,6 +150,7 @@ func (p *Pool) cloneHandlers() []EventHandler {
 	return dest
 }
 
+//复制并返回Pool中的supervisors
 func (p *Pool) Supervisors() []Supervisor {
 	p.svLock.RLock()
 	var dest = make([]Supervisor, len(p.supervisors))
@@ -219,12 +225,4 @@ func (p *Pool) Terminate() {
 	p.terminating = true
 	p.StopAll()
 	p.notifyDone()
-}
-
-func (p *Pool) EnableHotReload() {
-	p.isHotReload = true
-}
-
-func (p *Pool) DisableHotReload() {
-	p.isHotReload = false
 }

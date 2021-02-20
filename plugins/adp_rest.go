@@ -24,6 +24,9 @@ type RestPlugin struct {
 
 func (p *RestPlugin) Prepare(ctx context.Context, pl *pool.Pool) error {
 
+	//是否启用production模式
+	gin.SetMode(gin.ReleaseMode)
+
 	router := gin.Default()
 	if p.CORS {
 		router.Use(CORSMiddleware())

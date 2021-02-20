@@ -5,9 +5,9 @@ import (
 	"github.com/reddec/monexec/monexec"
 	"github.com/reddec/monexec/plugins"
 	"github.com/reddec/monexec/pool"
+	log "github.com/sirupsen/logrus"
 	"gopkg.in/alecthomas/kingpin.v2"
 	"gopkg.in/yaml.v2"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -78,9 +78,12 @@ func run() {
 	if *runGenerate {
 		data, err := yaml.Marshal(config)
 		if err != nil {
-			panic(err)
+			log.Panicln(err)
 		}
-		os.Stdout.Write(data)
+		_, err = os.Stdout.Write(data)
+		if err != nil {
+			log.Panicln(err)
+		}
 	} else {
 
 		runConfigInSupervisor(&config, &pool.Pool{})
@@ -109,7 +112,7 @@ func runConfigInSupervisor(config *monexec.Config, pool *pool.Pool) {
 		}
 	}()
 
-	err := config.Run(pool, ctx)
+	err := config.Run(ctx, pool)
 	if err != nil {
 		log.Fatal(err)
 	}
