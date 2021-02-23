@@ -112,7 +112,7 @@ func (exe *Executable) run(ctx context.Context) error {
 	var stderr []io.Writer
 	var stdout []io.Writer
 
-	output := NewLoggerStream(exe.logger(), "|▶▶▶ ServiceOut|")
+	output := NewLoggerStream(exe.logger(), "|ServiceOut  ▶▶▶| ")
 	outputs = append(outputs, output)
 	defer output.Close()
 	stderr = outputs

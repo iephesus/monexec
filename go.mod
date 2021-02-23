@@ -1,6 +1,6 @@
 module github.com/reddec/monexec
 
-go 1.15
+go 1.16
 
 require (
 	github.com/Masterminds/semver v1.2.2 // indirect
@@ -22,12 +22,11 @@ require (
 	github.com/mitchellh/mapstructure v1.1.2
 	github.com/pascaldekloe/goe v0.1.0 // indirect
 	github.com/pkg/errors v0.8.1
-	github.com/sirupsen/logrus v1.4.2
+	github.com/sirupsen/logrus v1.8.0
 	github.com/spf13/viper v1.7.1
 	github.com/stretchr/testify v1.6.1 // indirect
 	github.com/technoweenie/multipartstreamer v1.0.1 // indirect
 	golang.org/x/net v0.0.0-20201031054903-ff519b6c9102 // indirect
-	golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9 // indirect
 	gopkg.in/alecthomas/kingpin.v2 v2.2.6
 	gopkg.in/telegram-bot-api.v4 v4.6.2
 	gopkg.in/yaml.v2 v2.2.4

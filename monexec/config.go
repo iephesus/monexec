@@ -7,6 +7,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"errors"
@@ -26,7 +27,8 @@ type Config struct {
 }
 
 var (
-	globalConfig *Config          //保存全局Config 为了config_reload
+	globalConfig *Config //保存全局Config 为了config_reload
+	gLock       sync.Mutex
 	globalPool   *pool.Pool       //保存全局Pool 为了config_reload
 	globalCtx    *context.Context //保存全局Context
 )
@@ -63,7 +65,7 @@ func (config *Config) Run(ctx context.Context, p *pool.Pool) error {
 		if err != nil {
 			log.Infoln("Failed prepare plugin", pluginName, "-", err)
 		} else {
-			log.Infof("Plugin [%v] ready \n", pluginName)
+			log.Infof("Plugin [%v] ready", pluginName)
 			p.Watch(pluginInstance)
 		}
 	}

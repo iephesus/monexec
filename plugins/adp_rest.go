@@ -2,13 +2,17 @@ package plugins
 
 import (
 	"context"
+	"embed"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
 	"github.com/reddec/monexec/pool"
+	"github.com/reddec/monexec/ui"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
+	"path"
 	"time"
 )
 
@@ -22,6 +26,25 @@ type RestPlugin struct {
 	server *http.Server
 }
 
+// 嵌入普通的静态资源
+type StaticResource struct {
+	staticFS embed.FS //静态资源
+	path     string   //设置embed文件到静态资源的相对路径，也就是embed注释里的路径
+}
+
+// 静态资源被访问的核心逻辑
+func (w *StaticResource) Open(name string) (fs.File, error) {
+	var fullName string
+	//if strings.Contains(name, `/`) {
+	//	fullName = path.Join(w.path, "", name)
+	//} else {
+	//	fullName = path.Join(w.path, name)
+	//}
+	fullName = path.Join(w.path, name)
+	file, err := w.staticFS.Open(fullName)
+	return file, err
+}
+
 func (p *RestPlugin) Prepare(ctx context.Context, pl *pool.Pool) error {
 
 	//是否启用production模式
@@ -31,8 +54,15 @@ func (p *RestPlugin) Prepare(ctx context.Context, pl *pool.Pool) error {
 	if p.CORS {
 		router.Use(CORSMiddleware())
 	}
-	//TODO 不使用go-bindata
-	router.StaticFS("/ui", http.Dir("./ui/dist"))
+	as := &StaticResource{
+		staticFS: ui.WebUI,
+		path:     "dist",
+	}
+	// go1.16 embed方式
+	router.StaticFS("/ui", http.FS(as))
+	// 不使用go-bindata
+	//router.StaticFS("/ui", http.Dir("./ui/dist"))
+	// 使用go-bindata
 	//router.StaticFS("/ui/", &assetfs.AssetFS{Asset: Asset, AssetDir: AssetDir, AssetInfo: AssetInfo, Prefix: ""})
 	router.GET("/", func(gctx *gin.Context) {
 		gctx.Redirect(http.StatusTemporaryRedirect, "ui")

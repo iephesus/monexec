@@ -28,7 +28,7 @@ TODO 1、只有单一配置文件的情况下才支持热重载，当多配置�
 func init() {
 	log.SetFormatter(&log.TextFormatter{
 		FullTimestamp: true,
-		ForceColors:   true,
+		//ForceColors:   true,
 	})
 }
 
@@ -54,7 +54,9 @@ func enableDynamicConfig(viperCfg *viper.Viper, location, file string) {
 
 	//TODO bugs: 使用vi、atom、vscode等其他编辑器编辑配置文件时，会触发两次回调
 	viperCfg.OnConfigChange(func(event fsnotify.Event) {
-		log.Infof("检测到配置文件改变 %s \n", event.String())
+		gLock.Lock()
+		defer gLock.Unlock()
+		log.Infof("检测到配置文件改变 %s ", event.String())
 		//每次监听配置改动的时候，都需要先判断配置中是否关闭了热重载参数
 		if enable := viperCfg.GetBool("assist.configReload"); enable {
 			var conf = DefaultConfig()
@@ -66,13 +68,14 @@ func enableDynamicConfig(viperCfg *viper.Viper, location, file string) {
 				return
 			}
 
+
 			needStartServ := getNewServices(globalConfig.Services, conf.Services)
-			//启动新服务
-			go startNewService(needStartServ)
+			//启动新服务 不启动新协程
+			startNewService(needStartServ)
 
 			needLoadPlugins := getNewPlugins(globalConfig, &conf)
-			//加载新插件
-			go loadNewPlugin(fileName, needLoadPlugins)
+			//加载新插件 不启动新协程
+			loadNewPlugin(fileName, needLoadPlugins)
 
 			//TODO 是否启用重载插件不同参数
 			//loadPluginsDiff(&conf)
@@ -88,8 +91,7 @@ func enableDynamicConfig(viperCfg *viper.Viper, location, file string) {
 // 获取更改配置后所有需要新启动的服务
 func getNewServices(oldServ, newServ []pool.Executable) []pool.Executable {
 	//TODO old: 如何判断是否为新增服务?实际上同label、command、args的服务可以重复启动 即判逻辑上判断为已经存在的旧服务，但实际可能为新增加的需要启动的同名服务
-	//TODO new: 只用label来判断。 由编写配置文件的人员自行把控，因为存在需要启动 同command和args服务的情况
-	//     同时只关心新增服务的情况
+	//TODO new: 只用label来判断，由编写配置文件的人员自行把控，因为存在需要启动 同command和args服务的情况 同时只关心新增服务的情况
 	var needToStart []pool.Executable
 	servMap := make(map[string]pool.Executable)
 	for _, v1 := range oldServ {
@@ -106,7 +108,7 @@ func getNewServices(oldServ, newServ []pool.Executable) []pool.Executable {
 // 启动新服务
 func startNewService(needStartServ []pool.Executable) {
 	if needStartServ != nil {
-		log.Infof("---> 开始服务热重载...  新增服务数(%v) <---\n", len(needStartServ))
+		log.Infof("---> 开始服务热重载...  新增服务数(%v) <---", len(needStartServ))
 		for i := range needStartServ {
 			exec := needStartServ[i]
 			FillDefaultExecutable(&exec)
@@ -121,7 +123,7 @@ func startNewService(needStartServ []pool.Executable) {
 			pool.NewServChan <- &exec
 		}
 	} else {
-		log.Info("没有新增服务需要启动...")
+		log.Infoln("没有新增服务需要启动...")
 	}
 }
 
@@ -145,7 +147,7 @@ func getNewPlugins(oldConf, newConf *Config) map[string]interface{} {
 //加载新插件
 func loadNewPlugin(fileName string, needLoadPlugins map[string]interface{}) {
 	if len(needLoadPlugins) != 0 {
-		log.Infof("---> 开始加载新插件...  新增插件数(%v) <---\n", len(needLoadPlugins))
+		log.Infof("---> 开始加载新插件...  新增插件数(%v) <---", len(needLoadPlugins))
 
 		//将插件加载到loadedPlugins映射中
 		var tempConf = DefaultConfig()
@@ -170,6 +172,7 @@ func loadNewPlugin(fileName string, needLoadPlugins map[string]interface{}) {
 	}
 }
 
+//TODO
 //重新加载修改过的插件数据
 func loadPluginsDiff(newConf *Config) {
 	//TODO 如果旧配置中的参数 新配置中不存在，是把此参数做删除处理还是保持原参数不变
