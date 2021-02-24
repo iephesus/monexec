@@ -1,4 +1,4 @@
-### Monexec Config配置说明
+## Monexec Config配置说明
 - #### 格式 
   - 配置文件必须为 **.yml** 或 **.yaml** 结尾
   - 加载方式为monexec start ~/配置文件位置
@@ -36,14 +36,14 @@
         assist:
             machine: DemoMachine1
             ip: "192.168.1.1"
-            hotReload: true
+            configReload: true
             users:
-               - {username: "demouser1", password: "123456789"}
-               - {username: "demouser2", password: "11223344"}
+               - {username: "demouser1", password: "123456"}
+               - {username: "demouser2", password: "112233"}
         ```
      - **machine**指定Web UI页面中显示的机器名
      - **ip**指定Web UI页面中显示的机器IP地址
-     - **hotReload**设定监控程序是否启用配置文件热重载，当启用的时候目前可自动加载 **新增** 的服务service和插件plugin，且新增的服务中**command**和**args**参数必须与已有的服务不同
+     - **configReload**设定监控程序是否启用配置文件热重载，当启用的时候目前可自动加载 **新增** 的服务service和插件plugin
      - **users**为配置Web UI中登录的用户名与密码，可配置多对且登录时使用任一帐号即可
    - ##### 如果要启用Web UI的话需要配置rest插件
      - ``` yaml
