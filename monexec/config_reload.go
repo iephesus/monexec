@@ -91,7 +91,7 @@ func enableDynamicConfig(viperCfg *viper.Viper, location, file string) {
 // 获取更改配置后所有需要新启动的服务
 func getNewServices(oldServ, newServ []pool.Executable) []pool.Executable {
 	//TODO old: 如何判断是否为新增服务?实际上同label、command、args的服务可以重复启动 即判逻辑上判断为已经存在的旧服务，但实际可能为新增加的需要启动的同名服务
-	//TODO new: 只用label来判断，由编写配置文件的人员自行把控，因为存在需要启动 同command和args服务的情况 同时只关心新增服务的情况
+	//     new: 只用label来判断，由编写配置文件的人员自行把控，因为存在需要启动 同command和args服务的情况 同时只关心新增服务的情况
 	var needToStart []pool.Executable
 	servMap := make(map[string]pool.Executable)
 	for _, v1 := range oldServ {

@@ -131,7 +131,13 @@ func (exe *Executable) run(ctx context.Context) error {
 			wd, _ := filepath.Abs(exe.WorkDir)
 			exe.LogFile = filepath.Join(wd, exe.LogFile)
 		}
-		logFile, err := os.OpenFile(exe.LogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+		// 处理linux下目录不存在则的情况
+		fileDirPath := filepath.Dir(exe.LogFile)
+		if _, err := os.Stat(fileDirPath); os.IsNotExist(err) {
+			os.MkdirAll(fileDirPath, 0666)
+		}
+		// 创建文件前需保证所有层级的目录都存在
+		logFile, err := os.OpenFile(exe.LogFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0666)
 		if err != nil {
 			exe.logger().Println("Failed open log file:", err)
 		} else {

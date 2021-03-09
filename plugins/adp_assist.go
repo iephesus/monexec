@@ -33,6 +33,7 @@ func (a *Assist) Prepare(ctx context.Context, pl *pool.Pool) error {
 	return nil
 }
 
+//TODO 因为热重载的时候只能是单配置文件，此时是否需要合并配置的判断?
 func (a *Assist) MergeFrom(other interface{}) error {
 	b := other.(*Assist)
 	if a.Machine == "" {
@@ -47,7 +48,6 @@ func (a *Assist) MergeFrom(other interface{}) error {
 	if a.Ip != b.Ip {
 		return errors.New("different machine ip")
 	}
-	//TODO 因为热重载的时候只能是单配置文件，此时是否需要合并配置的判断?
 	//if a.HotReload && b.HotReload {
 	//	a.HotReload = true
 	//} else {
