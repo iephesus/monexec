@@ -18,6 +18,8 @@ require (
 	github.com/hashicorp/memberlist v0.2.2 // indirect
 	github.com/huandu/xstrings v0.0.0-20151130125119-3959339b3335 // indirect
 	github.com/imdario/mergo v0.0.0-20171009183408-7fe0c75c13ab // indirect
+	github.com/lestrrat-go/file-rotatelogs v2.4.0+incompatible
+	github.com/lestrrat-go/strftime v1.0.4 // indirect
 	github.com/mitchellh/go-testing-interface v1.14.1 // indirect
 	github.com/mitchellh/mapstructure v1.1.2
 	github.com/pascaldekloe/goe v0.1.0 // indirect

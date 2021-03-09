@@ -68,7 +68,6 @@ func enableDynamicConfig(viperCfg *viper.Viper, location, file string) {
 				return
 			}
 
-
 			needStartServ := getNewServices(globalConfig.Services, conf.Services)
 			//启动新服务 不启动新协程
 			startNewService(needStartServ)

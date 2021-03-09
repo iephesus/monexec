@@ -2,6 +2,7 @@ package pool
 
 import (
 	"context"
+	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
 	"io"
 	"log"
 	"os"
@@ -132,21 +133,42 @@ func (exe *Executable) run(ctx context.Context) error {
 			exe.LogFile = filepath.Join(wd, exe.LogFile)
 		}
 		// 处理linux下目录不存在则的情况
-		fileDirPath := filepath.Dir(exe.LogFile)
-		if _, err := os.Stat(fileDirPath); os.IsNotExist(err) {
-			os.MkdirAll(fileDirPath, 0666)
-		}
+		//fileDirPath := filepath.Dir(exe.LogFile)
+		//if _, err := os.Stat(fileDirPath); os.IsNotExist(err) {
+		//	os.MkdirAll(fileDirPath, 0666)
+		//}
 		// 创建文件前需保证所有层级的目录都存在
-		logFile, err := os.OpenFile(exe.LogFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0666)
-		if err != nil {
-			exe.logger().Println("Failed open log file:", err)
-		} else {
-			defer logFile.Close()
-			outputs = append(outputs, logFile)
-			//支持将服务的日志输出到文件
-			stdout = append(stdout, logFile)
-			stderr = append(stderr, logFile)
+		//logFile, err := os.OpenFile(exe.LogFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0666)
+
+		// 日志切割
+		logFileOut, errOut := rotatelogs.New(
+			exe.LogFile+".%F",
+			rotatelogs.WithLinkName(exe.LogFile),
+			//rotatelogs.WithMaxAge(7*24*time.Hour),     // 1周
+			//rotatelogs.WithRotationTime(24*time.Hour), // 1天
+			rotatelogs.WithRotationSize(1024*1024*10), // 最大10M
+			rotatelogs.WithRotationCount(20),          // 最多20个文件
+		)
+		if errOut != nil {
+			exe.logger().Println("Failed open stdout log file: ", errOut)
 		}
+		logFileErr, errErr := rotatelogs.New(
+			exe.LogFile+".err.%F",
+			rotatelogs.WithLinkName(exe.LogFile+".err"),
+			//rotatelogs.WithMaxAge(7*24*time.Hour),     // 1周
+			//rotatelogs.WithRotationTime(24*time.Hour), // 1天
+			rotatelogs.WithRotationSize(1024*1024*10), // 最大10M
+			rotatelogs.WithRotationCount(20),          // 最多20个文件
+		)
+		if errErr != nil {
+			exe.logger().Println("Failed open stderr log file: ", errErr)
+		}
+		defer logFileOut.Close()
+		defer logFileErr.Close()
+		outputs = append(outputs, logFileOut, logFileErr)
+		//支持将服务的日志输出到文件
+		stdout = append(stdout, logFileOut)
+		stderr = append(stderr, logFileErr)
 	}
 
 	logStderrStream := io.MultiWriter(stderr...)
