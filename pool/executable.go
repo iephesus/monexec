@@ -141,9 +141,19 @@ func (exe *Executable) run(ctx context.Context) error {
 		//logFile, err := os.OpenFile(exe.LogFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0666)
 
 		// 日志切割
+		var logNameSlice []string
+		if strings.HasSuffix(exe.LogFile, ".log") {
+			logNameSlice = strings.Split(exe.LogFile, ".")
+			if len(logNameSlice) > 2 {
+				logNameSlice[1] = "log"
+			}
+		} else {
+			logNameSlice[0] = exe.LogFile
+			logNameSlice[1] = "log"
+		}
 		logFileOut, errOut := rotatelogs.New(
-			exe.LogFile+".%F",
-			rotatelogs.WithLinkName(exe.LogFile),
+			logNameSlice[0]+".%F."+logNameSlice[1],
+			rotatelogs.WithLinkName(logNameSlice[0]+".log"),
 			//rotatelogs.WithMaxAge(7*24*time.Hour),     // 1周
 			//rotatelogs.WithRotationTime(24*time.Hour), // 1天
 			rotatelogs.WithRotationSize(1024*1024*10), // 最大10M
@@ -153,8 +163,8 @@ func (exe *Executable) run(ctx context.Context) error {
 			exe.logger().Println("Failed open stdout log file: ", errOut)
 		}
 		logFileErr, errErr := rotatelogs.New(
-			exe.LogFile+".err.%F",
-			rotatelogs.WithLinkName(exe.LogFile+".err"),
+			logNameSlice[0]+"_err.%F."+logNameSlice[1],
+			rotatelogs.WithLinkName(logNameSlice[0]+"_err.log"),
 			//rotatelogs.WithMaxAge(7*24*time.Hour),     // 1周
 			//rotatelogs.WithRotationTime(24*time.Hour), // 1天
 			rotatelogs.WithRotationSize(1024*1024*10), // 最大10M
